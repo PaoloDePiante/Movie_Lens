@@ -4,6 +4,7 @@ author: "Paolo De Piante"
 date: "`r format(Sys.Date())`"
 output:
   pdf_document: default
+  latex_engine: lualatex
   html_document:
     df_print: paged
 ---
@@ -182,7 +183,14 @@ Movie_rating_count %>% ggplot(aes(x=reorder(title, count), y=count)) +
 
 ## 2.3 Pre-processing: defining RMSE function
 
-Before to go through the analysis, I define the "Root Mean Square Error" function that will be used to evaluate how good the model fits with the validation data.
+Before to go through the analysis, I define the "Root Mean Square Error" function that will be used to evaluate how good the model fits with the validation data. The formula is:
+
+$$ RMSE = \sqrt{\frac{1}{N}\sum(\hat{y}_{u,i}-y_{u,i})^2}$$
+where 
+
+* $\hat{y}_{u,i}$ is the predicted values 
+* $y_{u,i}$ is the observed value
+
 
 ```{r RMSE, message=FALSE, warning=FALSE, results='hide'}
 # Function Definition for RMSE calculation
@@ -225,13 +233,16 @@ image(ratingMat[1:100, 1:100])
 
 Sparsity of ratings and the high number of 'NULL' values highlights a very challenging problem in terms of resources required to calculate a single algorithms or a bunch of them as an ensable. There are two main technics to try to reduce the dimension of the sparse matrix: “PCA” and “SVD”. Looking at svd method I meet the Irlba package that implement a memory-efficient way to compute a partial SVD. According to what was suggested by Rafael Irizarry into the Matrix factorization lesson, the SVD can help us to decompose a Matrix M[R,C] with R<C in as follows:
 
-                                                    M = U x D x V'
-where
-     * U  : orthogonal matrix of dimensions R x m 
-     * D  : diagonal matrix containing the singular values of the original matrix, m x m 
-     * V' : orthogonal matrix transposed of dimensions m x C
+$$M = U \times D \times V'$$
 
-Irlba algorithm shows the k parameter equal to the number of Singular vectors with 90% of variability explained. It is also shown into the plot. In this way we could say that our original matrix made of 9000055 ratings becomes of (69878∗55)+(55∗55)+(55∗10677)=4,433,550 cells. So more or less the 50% less than the original one.Now the question was: is it possible to do better? So this is a key point to address. How to reduce the sparse matrix without loose important data to train the model? I also tried PCA method but I will tell about it further in this study.   
+where
+
+* U  : orthogonal matrix of dimensions $R \times m$ 
+* D  : diagonal matrix containing the singular values of the original matrix, $m \times m$ 
+* V' : orthogonal matrix transposed of dimensions $m \times C$
+
+Irlba algorithm shows the k parameter equal to the number of Singular vectors with 90% of variability explained. It is also shown into the plot. In this way we could say that our original matrix made of 9000055 ratings becomes of
+$(69878\times55)+(55\times55)+(55\times10677)=4,433,550$ cells. So more or less the 50% less than the original one.Now the question was: is it possible to do better? So this is a key point to address. How to reduce the sparse matrix without loose important data to train the model? I also tried PCA method but I will tell about it further in this study.   
 
 ```{r SVD Matrix reduction, message=FALSE, warning=FALSE}
 set.seed(1)
@@ -258,7 +269,8 @@ min_movies <- quantile(rowCounts(ratingMat),0.9)
 min_movies
 min_users <- quantile(colCounts(ratingMat), 0.9)
 min_users
-ratings_movies <- ratingMat[rowCounts(ratingMat) > min_movies, colCounts(ratingMat) > min_users]
+ratings_movies <- ratingMat[rowCounts(ratingMat) > min_movies, 
+                            colCounts(ratingMat) > min_users]
 ratings_movies
 
 ```
@@ -267,12 +279,24 @@ So the new matrix (named ratings_movies) dimension is made of 2,313,148 ratings 
 
 # 2.5. Machine Learning implementation
 
-Based on pre-processing data and information we try some Machine Learning methods. For each one the model will be validated using RMSE function. The first family models are related to the linaer regression ones using movies, users and genres effects. This approach comes from lessons provided by Irizarry, R. in Recommandation Systems topic. We follow an incremental approach starting from a simple linear regression model including the same rating (the general mean) for all users and movies plus an error. So the true rating value for the 'u' user and the 'i' movie is:
+Based on pre-processing data and information we try some Machine Learning methods. For each one the model will be validated using RMSE function.
 
-{tex}Y_{u,i} = \mu + \epsilon_{u,i}{/tex}
+## 2.5.1 Linear regression models
+
+The first family models are related to the linaer regression ones using movies, users and genres effects. This approach comes from lessons provided by Irizarry, R. in Recommandation Systems topic. We follow an incremental approach starting from a simple linear regression model including the same rating (the general average "mu") for all users and movies plus an error. So the true rating value for the 'u' user and the 'i' movie is:
+
+$$Y_{u,i} = \mu + \epsilon_{u,i}$$
+As follows, the code shows how we added (one by one) to this "naive" starting model the following terms:
+
+* b_i is the avegrage ranking form movies i
+* b_u is equal to mean(rating - mu - b_i) the user effect
+* b_g is equal to mean(rating - mu - b_i - b_u) the genre effect
+
+to enrich the model. For each one, step by step, the rmse has been calculated. The time has not been included because as we saw in exploratory phase it doesn't have a marked effect on ratings.
+
 
 ```{r movie user and genres effect, message=FALSE, warning=FALSE}
-# Linear regression models using movies, users and genres effect
+# Linear regression models using just the mean, movies, users and genres effect
 
 mu <- mean(edx$rating)
 naive_rmse <- RMSE(validation$rating, mu)
@@ -291,8 +315,9 @@ predicted_rating <- validation %>% left_join(movie_avg, by = "movieId") %>%
 movie_user_rmse <- RMSE(validation$rating, predicted_rating)
 movie_user_rmse
 
-genres_avg <- edx %>% left_join(movie_avg, by = "movieId") %>% left_join(user_avg, by = "userId") %>%
-  group_by(genres) %>% summarize(b_g = mean(rating - mu - b_i - b_u))
+genres_avg <- edx %>% left_join(movie_avg, by = "movieId") %>% 
+  left_join(user_avg, by = "userId") %>%  group_by(genres) %>% 
+  summarize(b_g = mean(rating - mu - b_i - b_u))
 predicted_rating <- validation %>% left_join(movie_avg, by = "movieId") %>% 
   left_join(user_avg, by = "userId") %>% left_join(genres_avg, by="genres") %>%
   mutate(pred = mu + b_i + b_u + b_g) %>% .$pred
@@ -300,4 +325,6 @@ movie_genres_rmse <- RMSE(validation$rating, predicted_rating)
 movie_genres_rmse
 
 ```
+### 2.5.1.1 Regularization
 
+The question is: 

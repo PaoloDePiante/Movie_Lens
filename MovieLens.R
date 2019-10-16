@@ -131,7 +131,7 @@ Times %>% mutate(date = round_date(date, unit = "week")) %>%
   geom_point() +
   geom_smooth()
 
-# Obtain a sparse Matrix in class realRatingMatrix and Similarity analisys users and movies
+# Obtain a sparse Matrix in class realRatingMatrix 
 edx.copy <- edx
 edx.copy$userId <- as.factor(edx.copy$userId)
 edx.copy$movieId <- as.factor(edx.copy$movieId)
@@ -177,7 +177,7 @@ ratings_movies
 RMSE <- function(true_rating, predicted_rating){
   sqrt(mean((true_rating - predicted_rating)^2))}
 
-# movie user and genres effect
+# Linear regression models using just the mean, movies, users and genres effect
 
 mu <- mean(edx$rating)
 naive_rmse <- RMSE(validation$rating, mu)
