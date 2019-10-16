@@ -144,24 +144,9 @@ sparse_ratings <- sparseMatrix(i = edx.copy$userId,
                                x = edx.copy$rating,
                                dims = c(length(unique(edx.copy$userId)),
                                         length(unique(edx.copy$movieId))))
-#,
-#dimnames = list(paste("u", 1:length(unique(edx.copy$userId)), sep=""),
-#                paste("m",1:length(unique(edx.copy$movieId)), sep="")))
-
-
 
 ratingMat <- new("realRatingMatrix", data = sparse_ratings)
-#ratings <- as(sparse_ratings, "realRatingMatrix")
-
-
-
-
 image(ratingMat[1:50, 1:50])
-#Users_sim <- similarity(ratingMat[1:50,], method = "cosine", which = "Users")
-#image(as.matrix(Users_sim), main = 'Similarity of Users')
-
-#Movies_sim <- similarity(ratingMat[,1:50], method = "cosine", which = "Items")
-#image(as.matrix(Movies_sim), main = 'Similarity of Movies')
 
 # Matrix Reduction SVD 
 
@@ -171,22 +156,20 @@ plot(cumsum(Red_ratings$d^2/sum(Red_ratings$d^2)), type="l", xlab="SIngular Vect
 lines(x=c(0,100), y= c(.90, .90))
 k = max(which(cumsum(Red_ratings$d^2/sum(Red_ratings$d^2)) <= .90))
 k # Number of Singular vectors with 90% of variability explained
-k = 100
 U <- Red_ratings$u[, 1:k]
 D <- Diagonal(x = Red_ratings$d[1:k])
 V <- t(Red_ratings$v)[1:k,]
 
-Red_ratings_svd <- U%*%D%*%V # questo ci da la matrice originaria al 90%
+# U%*%D%*%V this provide us the original matrix at 90%
+# U%*%V # this provide predicted ratings
 
-p  <- U%*%V # questo ci da i predicted ratings
+# Different approach to reduce the original matrix (realRatingMatrix)
 
-# Secondo metodo di riduzione della matrice originaria
-
-min_n_movies <- quantile(rowCounts(ratingMat),0.9)
-min_n_movies
-min_n_users <- quantile(colCounts(ratingMat), 0.9)
-min_n_users
-ratings_movies <- ratingMat[rowCounts(ratingMat) > min_n_movies, colCounts(ratingMat) > min_n_users]
+min_movies <- quantile(rowCounts(ratingMat),0.9)
+min_movies
+min_users <- quantile(colCounts(ratingMat), 0.9)
+min_users
+ratings_movies <- ratingMat[rowCounts(ratingMat) > min_movies, colCounts(ratingMat) > min_users]
 ratings_movies
 
 # Function Definition for RMSE calculation

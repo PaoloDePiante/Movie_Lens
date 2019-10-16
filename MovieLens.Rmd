@@ -3,13 +3,14 @@ title: "MovieLens Data Analysis"
 author: "Paolo De Piante"
 date: "`r format(Sys.Date())`"
 output:
+  pdf_document: default
   html_document:
     df_print: paged
-  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, fig.align = 'center', out.width = '90%') 
+
 ```
 
 
@@ -230,23 +231,73 @@ where
      * D  : diagonal matrix containing the singular values of the original matrix, m x m 
      * V' : orthogonal matrix transposed of dimensions m x C
 
-Irlba algorithm shows the k parameter equal to the number of Singular vectors with 90% of variability explained. It is also shown into the plot. In this way we could say that our original matrix made of 9000055 ratings could become of (69878∗55)+(55∗55)+(55∗10677)=4,433,550 cells. So more or less the 50% less than the original one. I tried to use this matrix ma is still quite big for my hardware. So this is a key point to address. How to reduce the sparse matrix without loose important data to train the model? I also tried PCA method but I will tell about it further in this study.   
+Irlba algorithm shows the k parameter equal to the number of Singular vectors with 90% of variability explained. It is also shown into the plot. In this way we could say that our original matrix made of 9000055 ratings becomes of (69878∗55)+(55∗55)+(55∗10677)=4,433,550 cells. So more or less the 50% less than the original one.Now the question was: is it possible to do better? So this is a key point to address. How to reduce the sparse matrix without loose important data to train the model? I also tried PCA method but I will tell about it further in this study.   
 
 ```{r SVD Matrix reduction, message=FALSE, warning=FALSE}
 set.seed(1)
 Red_ratings <- irlba(sparse_ratings, tol=1e-4, verbose=TRUE, nv= 100, maxit=1000)
-plot(cumsum(Red_ratings$d^2/sum(Red_ratings$d^2)), type="l", xlab="SIngular Vector",
+plot(cumsum(Red_ratings$d^2/sum(Red_ratings$d^2)), type="l", xlab="Singular Vector",
      ylab="Variability Explained Cumulated")
 lines(x=c(0,100), y= c(.90, .90))
 k = max(which(cumsum(Red_ratings$d^2/sum(Red_ratings$d^2)) <= .90))
 k # Number of Singular vectors with 90% of variability explained
-k = 100
 U <- Red_ratings$u[, 1:k]
 D <- Diagonal(x = Red_ratings$d[1:k])
 V <- t(Red_ratings$v)[1:k,]
 
-Red_ratings_svd <- U%*%D%*%V # This provide us the original matrix at 90%
+# U%*%D%*%V this provide us the original matrix at 90%
+# U%*%V this provide the predicted ratings
+```
 
-p  <- U%*%V # this provide the predicted ratings
+The idea is to reduce the matrix knowing that many users gives few ratings and many movies doesn't have many ratings too. So we could cut the movies and the rows using this criteria. We calculate quantiles and in particular way the 90th percentile that leaves on its left 90% of the elements of the distribution. we do that for both, movies and users. After that, we take in consideration just the row counts (number of movies voted for each user) and column counts (number of users that provided a vote for each movie) of the matrix that are greater than two quantiles.
+
+```{r Matrix reduction based on quantiles, message=FALSE, warning=FALSE}
+# Different approach to reduce the original matrix (realRatingMatrix)
+
+min_movies <- quantile(rowCounts(ratingMat),0.9)
+min_movies
+min_users <- quantile(colCounts(ratingMat), 0.9)
+min_users
+ratings_movies <- ratingMat[rowCounts(ratingMat) > min_movies, colCounts(ratingMat) > min_users]
+ratings_movies
+
+```
+
+So the new matrix (named ratings_movies) dimension is made of 2,313,148 ratings on 7,452,504 (elements or cells).
+
+# 2.5. Machine Learning implementation
+
+Based on pre-processing data and information we try some Machine Learning methods. For each one the model will be validated using RMSE function. The first family models are related to the linaer regression ones using movies, users and genres effects. This approach comes from lessons provided by Irizarry, R. in Recommandation Systems topic. We follow an incremental approach starting from a simple linear regression model including the same rating (the general mean) for all users and movies plus an error. So the true rating value for the 'u' user and the 'i' movie is:
+
+{tex}Y_{u,i} = \mu + \epsilon_{u,i}{/tex}
+
+```{r movie user and genres effect, message=FALSE, warning=FALSE}
+# Linear regression models using movies, users and genres effect
+
+mu <- mean(edx$rating)
+naive_rmse <- RMSE(validation$rating, mu)
+naive_rmse
+
+movie_avg <- edx %>% group_by(movieId) %>% summarize(b_i = mean(rating - mu))
+predicted_rating <- mu + validation %>% left_join(movie_avg, by = "movieId") %>% .$b_i
+movie_rmse <- RMSE(validation$rating, predicted_rating)
+movie_rmse
+
+user_avg <- edx %>% left_join(movie_avg, by = "movieId") %>% group_by(userId) %>% 
+  summarize(b_u = mean(rating - mu - b_i)) 
+predicted_rating <- validation %>% left_join(movie_avg, by = "movieId") %>% 
+  left_join(user_avg, by = "userId") %>% 
+  mutate(pred = mu + b_i + b_u) %>% .$pred
+movie_user_rmse <- RMSE(validation$rating, predicted_rating)
+movie_user_rmse
+
+genres_avg <- edx %>% left_join(movie_avg, by = "movieId") %>% left_join(user_avg, by = "userId") %>%
+  group_by(genres) %>% summarize(b_g = mean(rating - mu - b_i - b_u))
+predicted_rating <- validation %>% left_join(movie_avg, by = "movieId") %>% 
+  left_join(user_avg, by = "userId") %>% left_join(genres_avg, by="genres") %>%
+  mutate(pred = mu + b_i + b_u + b_g) %>% .$pred
+movie_genres_rmse <- RMSE(validation$rating, predicted_rating)
+movie_genres_rmse
+
 ```
 
