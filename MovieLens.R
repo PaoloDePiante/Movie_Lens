@@ -1,6 +1,8 @@
 ################################
 # Create edx set, validation set
 ################################
+
+# Libraries to load
 library(tidyverse)
 library(lubridate)
 library(Matrix)
@@ -204,22 +206,23 @@ predicted_rating <- validation %>% left_join(movie_avg, by = "movieId") %>%
 movie_genres_rmse <- RMSE(validation$rating, predicted_rating)
 movie_genres_rmse
 
-# regularization .... non ha senso aggiungere il genres - 0.864817
+# Regularization approach
 
 lambdas <- seq(0, 10, 0.25)
 rmses <- sapply(lambdas, function(l){
   mu <- mu <- mean(edx$rating)
   b_i <- edx %>% group_by(movieId) %>% summarize(b_i = sum(rating - mu)/(n()+l))
   b_u <- edx %>% left_join(b_i, by='movieId') %>% group_by(userId) %>% summarize(b_u = sum(rating -b_i -mu)/(n()+l))
-  predicted_rating <- validation %>% left_join(b_i, by = "movieId") %>% left_join(b_u, by = "userId") %>% mutate(pred = mu + b_i + b_u) %>% .$pred
+  predicted_rating <- validation %>% left_join(b_i, by = "movieId") %>% left_join(b_u, by = "userId") %>%
+      mutate(pred = mu + b_i + b_u) %>% .$pred
   return(RMSE(validation$rating, predicted_rating))})
 
 plot(lambdas, rmses)
 lambda <- lambdas[which.min(rmses)]
-lambda  # 5.25
+lambda  
 min(rmses)
 
-# RECOMMENDER ENGINES le prime 3 sono stime
+# RECOMMENDER ENGINES
 
 set.seed(1)
 eval <- evaluationScheme(ratings_movies, method="split", train=0.9, given=-5)
@@ -239,7 +242,10 @@ pred_IBCF <- predict(model_IBCF, getData(eval,"known"), type="ratings")
 rmse_IBCF <- calcPredictionAccuracy(pred_IBCF, getData(eval,"unknown"))[1]
 rmse_IBCF
 
-# RECOMMENDER ENGINES - MAtrix Factorization with parallel stochastic gradient descendent
+# Matrix Factorization with parallel stochastic gradient descendent
+
+# only three variables have been considered: "user";"item";"rating". 
+# Both are converted in a Matrix format (this is required by the recosystem package);
 
 edx.tiny <- edx %>% select(-c("genres","title","timestamp"))
 names(edx.tiny) <- c("user","item","rating")
@@ -248,12 +254,17 @@ names(validation.tiny) <- c("user","item","rating")
 edx.tiny <- as.matrix(edx.tiny)
 validation.tiny <- as.matrix(validation.tiny)
 
+# the model for prediction and validation output are written in two different flat files;
+
 write.table(edx.tiny, file = "traindata.txt", sep=" ", row.names=FALSE, col.names=FALSE)
 write.table(validation.tiny, file="validationdata.txt", sep=" ", row.names=FALSE, col.names=FALSE)
 
 set.seed(55)
 train_set <- data_file("traindata.txt")
 validation_set <- data_file("validationdata.txt")
+
+# create the model using Reco(), Tune() method to set parameters, 
+# Implement train() and predict() to train and calculate predicted values.
 
 r=Reco()
 opts=r$tune(train_set, opt=list(dim=c(10,20,30), lrate=c(0.1,0.2), costp_l1=0, costq_l1=0, nthread=1, niter=10))
@@ -265,54 +276,9 @@ scores_pred <- scan(pred_file)
 rmse_mf <- RMSE(scores_real, scores_pred)
 rmse_mf
 
-# Evaluation based on Genres using rcommanderlar
-
-Genres <- edx %>% filter(str_detect(genres, "Drama")) 
-
-
-edx.copy <- Genres
-edx.copy$userId <- as.factor(edx.copy$userId)
-edx.copy$movieId <- as.factor(edx.copy$movieId)
-
-edx.copy$userId <- as.numeric(edx.copy$userId)
-edx.copy$movieId <- as.numeric(edx.copy$movieId)
-
-sparse_ratings <- sparseMatrix(i = edx.copy$userId,
-                               j = edx.copy$movieId,
-                               x = edx.copy$rating,
-                               dims = c(length(unique(edx.copy$userId)),
-                                        length(unique(edx.copy$movieId))),
-dimnames = list(paste("u", 1:length(unique(edx.copy$userId)), sep=""),
-                paste("m",1:length(unique(edx.copy$movieId)), sep="")))
-
-ratingMat <- new("realRatingMatrix", data = sparse_ratings)
-
-min_n_movies <- quantile(rowCounts(ratingMat),0.9)
-min_n_users <- quantile(colCounts(ratingMat), 0.9)
-ratings_movies <- ratingMat[rowCounts(ratingMat) > min_n_movies, colCounts(ratingMat) > min_n_users]
-
-set.seed(1)
-eval <- evaluationScheme(ratings_movies, method="split", train=0.9, given=-1)
-
-model_svd <- Recommender(getData(eval,"train"), method="SVD")
-pred_svd <- predict(model_svd, getData(eval,"known"), type="ratings")
-rmse_svd <- calcPredictionAccuracy(pred_svd, getData(eval,"unknown"))[1]
-rmse_svd
-
-model_UBCF <- Recommender(getData(eval,"train"), method="UBCF", param=list(normalize="center", method="cosine", nn=50))
-pred_UBCF <- predict(model_UBCF, getData(eval,"known"), type="ratings")
-rmse_UBCF <- calcPredictionAccuracy(pred_UBCF, getData(eval,"unknown"))[1]
-rmse_UBCF
-
-model_IBCF <- Recommender(getData(eval,"train"), method="IBCF", param=list(normalize="center", method="cosine", k=350))
-pred_IBCF <- predict(model_IBCF, getData(eval,"known"), type="ratings")
-rmse_IBCF <- calcPredictionAccuracy(pred_IBCF, getData(eval,"unknown"))[1]
-rmse_IBCF
-
 # Reduction based on Genres and PCA
 
 Genres <- edx %>% filter(str_detect(genres, "Drama")) 
-
 
 edx.copy <- Genres
 edx.copy$userId <- as.factor(edx.copy$userId)
@@ -341,28 +307,17 @@ Genres_Matrix <- as(ratings_movies, "matrix")
 Genres_Matrix[is.na(Genres_Matrix)] <- 0
 mean_col <- colMeans(Genres_Matrix)
 
-#Genres_Matrix <- as.matrix(ratings_movies)
-
-#min_n_movies <- quantile(rowSums(b != 0), 0.95)
-#min_n_movies
-#min_n_users <- quantile(colSums(b != 0), 0.95)
-#min_n_users
-#ratings_movies <- b[rowSums(b != 0) > min_n_movies, colSums(b != 0) > min_n_users]
-#ratings_movies_base <- ratings_movies
-
 for (i in 1:nrow(Genres_Matrix)) {
   for (j in 1:ncol(Genres_Matrix)) if (Genres_Matrix[i,j]==0) Genres_Matrix[i,j]=mean_col[j]
 }
-
-#ratings_movies <- sweep(ratings_movies,1, rowMeans(ratings_movies)) # matrice con le medie al posto dei NULL
 
 cp <- prcomp(Genres_Matrix)
 
 dim(cp$rotation)
 dim(cp$x)
 
-#summary(cp) - lavoriamo con variabilita' spiegata al 60% con 75 Componenti principali
-x <- summary(cp)$importance[3,] # trasforma il summary in un data frame cos? posso prendere la cumulata
+#summary(cp) - explained variability set as 60% with 76 principal components
+x <- summary(cp)$importance[3,] 
 plot(x, type="l")
 
 var_explained <- cumsum(cp$sdev^2/sum(cp$sdev^2))
@@ -371,19 +326,19 @@ var_explained
 EV <- cp$x[,1:76]
 r<-cor(Genres_Matrix,EV)
 
+#The next line can be used to write a .csv file to assign an item to a principal component.
 #write.table(r, file = "PCA_Corr.csv",row.names=TRUE, na="",col.names=TRUE, sep=",")
 
-
-#PCs <- c("m619","m3324","m1822","m425","m2736","m513","m1498","m664","m270","m623","m1891","m121","m1101","m616","m970","m582","m1382","m1379","m613","m647","m164","m967","m651","m1141","m669","m265","m596","m630","m15","m407","m941","m644","m607","m638","m837","m1274","m2746","m143","m274","m244","m519","m466","m181","m242","m3880","m615","m262","m636","m559","m543","m149","m184","m286","m968","m276","m4785","m1476","m36","m1095","m20","m172","m916","m1328","m2483","m1570","m532","m57","m1968","m10","m631","m524","m145","m1791","m946","m137","m29")
-#ratings_movies_reduced <- ratings_movies[ ,which(colnames(ratings_movies) %in% PCs)]
-PCs <- c("619","3324","1822","425","2736","513","1498","664","270","623","1891","121","1101","616","970","582","1382","1379","613","647","164","967","651","1141","669","265","596","630","15","407","941","644","607","638","837","1274","2746","143","274","244","519","466","181","242","3880","615","262","636","559","543","149","184","286","968","276","4785","1476","36","1095","20","172","916","1328","2483","1570","532","57","1968","10","631","524","145","1791","946","137","29")
-
-#----------------------------- adesso uso le componenti principali
+PCs <- c("619","3324","1822","425","2736","513","1498","664","270","623","1891","121",
+         "1101","616","970","582","1382","1379","613","647","164","967","651","1141",
+         "669","265","596","630","15","407","941","644","607","638","837","1274","2746",
+         "143","274","244","519","466","181","242","3880","615","262","636","559","543",
+         "149","184","286","968","276","4785","1476","36","1095","20","172","916","1328",
+         "2483","1570","532","57","1968","10","631","524","145","1791","946","137","29")
 
 edx.copy <- edx %>% filter(movieId %in% PCs)
 edx.copy$userId <- as.factor(edx.copy$userId)
 edx.copy$movieId <- as.factor(edx.copy$movieId)
-
 edx.copy$userId <- as.numeric(edx.copy$userId)
 edx.copy$movieId <- as.numeric(edx.copy$movieId)
 
@@ -393,31 +348,40 @@ sparse_ratings <- sparseMatrix(i = edx.copy$userId,
                                dims = c(length(unique(edx.copy$userId)),
                                         length(unique(edx.copy$movieId))))
 
-
-
 ratingMat <- new("realRatingMatrix", data = sparse_ratings)
-#ratingMat <- as(sparse_ratings, "realRatingMatrix")
 
-min_n_movies <- quantile(rowCounts(ratingMat),0.9)
-#min_n_users <- quantile(colCounts(ratingMat), 0.9)
-ratings_movies <- ratingMat[rowCounts(ratingMat) > min_n_movies, ]
+min_movies <- quantile(rowCounts(ratingMat),0.9)
+ratings_movies <- ratingMat[rowCounts(ratingMat) > min_movies]
 
-
+  
 set.seed(1)
 eval <- evaluationScheme(ratings_movies, method="split", train=0.8, given=-1)
 
 model_svd <- Recommender(getData(eval,"train"), method="SVD")
 pred_svd <- predict(model_svd, getData(eval,"known"), type="ratings")
-rmse_svd <- calcPredictionAccuracy(pred_svd, getData(eval,"unknown"))[1]
-rmse_svd
+rmse_pca_svd <- calcPredictionAccuracy(pred_svd, getData(eval,"unknown"))[1]
+rmse_pca_svd
+
+model_svdf <- Recommender(getData(eval,"train"), method="SVDF")
+pred_svdf <- predict(model_svdf, getData(eval,"known"), type="ratings")
+rmse_pca_svdf <- calcPredictionAccuracy(pred_svdf, getData(eval,"unknown"))[1]
+rmse_pca_svdf
 
 model_UBCF <- Recommender(getData(eval,"train"), method="UBCF", param=list(normalize="center", method="cosine", nn=50))
 pred_UBCF <- predict(model_UBCF, getData(eval,"known"), type="ratings")
-rmse_UBCF <- calcPredictionAccuracy(pred_UBCF, getData(eval,"unknown"))[1]
-rmse_UBCF
+rmse_pca_UBCF <- calcPredictionAccuracy(pred_UBCF, getData(eval,"unknown"))[1]
+rmse_pca_UBCF
 
 model_IBCF <- Recommender(getData(eval,"train"), method="IBCF", param=list(normalize="center", method="cosine", k=350))
 pred_IBCF <- predict(model_IBCF, getData(eval,"known"), type="ratings")
-rmse_IBCF <- calcPredictionAccuracy(pred_IBCF, getData(eval,"unknown"))[1]
-rmse_IBCF
+rmse_pca_IBCF <- calcPredictionAccuracy(pred_IBCF, getData(eval,"unknown"))[1]
+rmse_pca_IBCF
 
+# Recap RMSEs
+
+rmse_table <- data.frame(RMSE = c(naive_rmse,movie_rmse,movie_user_rmse,movie_genres_rmse,min(rmses),rmse_svd,rmse_UBCF,rmse_IBCF,rmse_mf,rmse_pca_svd,rmse_pca_svdf,rmse_pca_UBCF,rmse_pca_IBCF)) 
+row.names(rmse_table) <- c("Naive","Movie","Movie & User","Movie & Users & Genres", "Movie & USers with Regularization", "SVD", "UBCF", "IBCF","Parallel Stochastic Gradient Descendent","PCA & SVD", "PCA & SVDF", "PCA & UBCF", "PCA & IBCF")
+rmse_table
+
+
+## --- End of file ---
